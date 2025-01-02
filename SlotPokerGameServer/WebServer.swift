@@ -9,7 +9,7 @@ class WebServer: ObservableObject {
     @Published var logMessages: [String] = []
     @Published var clients: [ClientInfo] = []
 
-    private var listener: NWListener?    
+    private var listener: NWListener?
 
     struct ClientInfo: Identifiable {
         let id: String // Unique identifier for the client
@@ -313,4 +313,3 @@ class WebServer: ObservableObject {
 
     
 }
-
