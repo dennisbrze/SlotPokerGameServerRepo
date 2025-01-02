@@ -5,11 +5,21 @@ struct ContentView: View {
     @State private var selectedClientID: String? // Tracks the selected client
     
     @StateObject private var pokerGame = PokerGame()
-
+    private var webSocketServer = WebSocketServer(gameState: <#PokerGame#>)
 
     // Function to fetch available IPs and handle errors
     private func fetchAvailableIP() {
         webServer.fetchAvailableIP() // Fetch available IPs
+    }
+    
+    func isValidIPAddress(_ ip: String) -> Bool {
+        let parts = ip.split(separator: ".")
+        return parts.count == 4 && parts.allSatisfy { part in
+            if let number = Int(part), (0...255).contains(number) {
+                return true
+            }
+            return false
+        }
     }
 
     var body: some View {
@@ -47,7 +57,15 @@ struct ContentView: View {
 
             // Start server button
             Button(action: {
-                webServer.start() // Start the server with the selected IP
+                guard isValidIPAddress(webServer.hostIPAddress) else {
+                        print("Invalid IP address")
+                        return
+                    }
+                    do {
+                        try webSocketServer.start(host: webServer.hostIPAddress, port: 8080)
+                    } catch {
+                        print("Error starting server: \(error)")
+                    }
             }) {
                 Text("Start Server")
                     .padding()
