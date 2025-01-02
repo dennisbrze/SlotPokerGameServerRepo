@@ -3,11 +3,53 @@ import Combine
 
 // Enum for player actions
 enum PlayerAction {
-    case fold, raise(Int), call(Int), check
-}
+    case fold
+    case raise(Int)
+    case call(Int)
+    case check
+
+    enum CodingKeys: String, CodingKey {
+        case type, value
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+
+        switch type {
+        case "fold":
+            self = .fold
+        case "raise":
+            let value = try container.decode(Int.self, forKey: .value)
+            self = .raise(value)
+        case "call":
+            let value = try container.decode(Int.self, forKey: .value)
+            self = .call(value)
+        case "check":
+            self = .check
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Invalid action type")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .fold:
+            try container.encode("fold", forKey: .type)
+        case .raise(let value):
+            try container.encode("raise", forKey: .type)
+            try container.encode(value, forKey: .value)
+        case .call(let value):
+            try container.encode("call", forKey: .type)
+            try container.encode(value, forKey: .value)
+        case .check:
+            try container.encode("check", forKey: .type)
+        }
+    }}
 
 // Model to represent a player
-class Player: Identifiable {
+class Player: Identifiable, Codable {
     var id = UUID()
     var name: String
     var chips: Int
@@ -15,11 +57,28 @@ class Player: Identifiable {
     var action: PlayerAction?
     var hasFolded: Bool = false
 
-    init(name: String, chips: Int) {
-        self.name = name
-        self.chips = chips
-        self.currentBet = 0
-        self.action = nil
+    enum CodingKeys: String, CodingKey {
+        case id, name, chips, currentBet, action, hasFolded
+    }
+
+    required init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.chips = try container.decode(Int.self, forKey: .chips)
+        self.currentBet = try container.decode(Int.self, forKey: .currentBet)
+        self.action = try container.decodeIfPresent(PlayerAction.self, forKey: .action)
+        self.hasFolded = try container.decode(Bool.self, forKey: .hasFolded)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(chips, forKey: .chips)
+        try container.encode(currentBet, forKey: .currentBet)
+        try container.encode(action, forKey: .action)
+        try container.encode(hasFolded, forKey: .hasFolded)
     }
 }
 
@@ -33,6 +92,32 @@ class PokerGame: ObservableObject {
 
     // This function will broadcast the updated state to all connected clients
     var broadcast: ((PokerGame) -> Void)?
+    private var webSocketServer: WebSocketServer?
+
+    func startGame() {
+        // Initialize and start the WebSocket server
+        webSocketServer = WebSocketServer()
+        webSocketServer?.start()
+        // Additional game start logic
+    }
+
+    func endGame() {
+        // Stop the WebSocket server
+        webSocketServer?.stop()
+        // Additional game end logic
+    }
+
+    func updateClients() {
+        // Serialize the current game state
+        let gameState = GameStateModel(/* initialize with current state */)
+        let serverData = ServerData(gameState: gameState, message: nil)
+        let serverMessage = ServerMessage(type: "gameUpdate", data: serverData)
+
+        if let messageData = try? JSONEncoder().encode(serverMessage),
+           let messageString = String(data: messageData, encoding: .utf8) {
+            webSocketServer?.broadcast(message: messageString)
+        }
+    }
     
     // Start a new round
     func startRound() {
@@ -134,5 +219,9 @@ class PokerGame: ObservableObject {
     func isBettingPhaseOver() -> Bool {
         let activeBets = players.filter { !$0.hasFolded }.map { $0.currentBet }
         return Set(activeBets).count <= 1
+    }
+    
+    DispatchQueue.main.async {
+        // Update game state
     }
 }

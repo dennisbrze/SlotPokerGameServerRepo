@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		952FD6592D121D5300A79F5F /* Network.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6F5DD2752D1037B2004C3465 /* Network.framework */; };
+		952FD68D2D26EAB000A79F5F /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = 952FD68C2D26EAB000A79F5F /* Starscream */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,6 +59,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				952FD6592D121D5300A79F5F /* Network.framework in Frameworks */,
+				952FD68D2D26EAB000A79F5F /* Starscream in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,6 +129,7 @@
 			);
 			name = SlotPokerGameServer;
 			packageProductDependencies = (
+				952FD68C2D26EAB000A79F5F /* Starscream */,
 			);
 			productName = SlotPokerGameServer;
 			productReference = 6F5DD2472D1036E7004C3465 /* SlotPokerGameServer.app */;
@@ -212,6 +215,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				952FD68A2D260A6E00A79F5F /* XCRemoteSwiftPackageReference "swift-nio" */,
+				952FD68B2D26EAB000A79F5F /* XCRemoteSwiftPackageReference "Starscream" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6F5DD2482D1036E7004C3465 /* Products */;
@@ -592,7 +596,23 @@
 				minimumVersion = 2.77.0;
 			};
 		};
+		952FD68B2D26EAB000A79F5F /* XCRemoteSwiftPackageReference "Starscream" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/daltoniam/Starscream.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.0.8;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		952FD68C2D26EAB000A79F5F /* Starscream */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 952FD68B2D26EAB000A79F5F /* XCRemoteSwiftPackageReference "Starscream" */;
+			productName = Starscream;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 6F5DD23F2D1036E7004C3465 /* Project object */;
 }
