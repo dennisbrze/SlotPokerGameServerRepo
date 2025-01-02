@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 // Enum for player actions
-enum PlayerAction {
+enum PlayerAction: Codable {
     case fold
     case raise(Int)
     case call(Int)
@@ -12,23 +12,24 @@ enum PlayerAction {
         case type, value
     }
 
+    enum ActionType: String, Codable {
+        case fold, raise, call, check
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-
+        let type = try container.decode(ActionType.self, forKey: .type)
         switch type {
-        case "fold":
+        case .fold:
             self = .fold
-        case "raise":
+        case .raise:
             let value = try container.decode(Int.self, forKey: .value)
             self = .raise(value)
-        case "call":
+        case .call:
             let value = try container.decode(Int.self, forKey: .value)
             self = .call(value)
-        case "check":
+        case .check:
             self = .check
-        default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Invalid action type")
         }
     }
 
@@ -36,29 +37,40 @@ enum PlayerAction {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .fold:
-            try container.encode("fold", forKey: .type)
+            try container.encode(ActionType.fold, forKey: .type)
         case .raise(let value):
-            try container.encode("raise", forKey: .type)
+            try container.encode(ActionType.raise, forKey: .type)
             try container.encode(value, forKey: .value)
         case .call(let value):
-            try container.encode("call", forKey: .type)
+            try container.encode(ActionType.call, forKey: .type)
             try container.encode(value, forKey: .value)
         case .check:
-            try container.encode("check", forKey: .type)
+            try container.encode(ActionType.check, forKey: .type)
         }
-    }}
+    }
+}
+
 
 // Model to represent a player
 class Player: Identifiable, Codable {
-    var id = UUID()
+    var id: UUID
     var name: String
     var chips: Int
     var currentBet: Int
     var action: PlayerAction?
-    var hasFolded: Bool = false
+    var hasFolded: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, chips, currentBet, action, hasFolded
+    }
+
+    init(name: String, chips: Int) {
+        self.id = UUID()
+        self.name = name
+        self.chips = chips
+        self.currentBet = 0
+        self.action = nil
+        self.hasFolded = false
     }
 
     required init(from decoder: Decoder) throws {
@@ -82,146 +94,42 @@ class Player: Identifiable, Codable {
     }
 }
 
+
 // Model to represent the game state
-class PokerGame: ObservableObject {
-    @Published var players: [Player] = []
-    @Published var pot: Int = 0
-    @Published var currentRound: Int = 1
-    @Published var activePlayerIndex: Int = 0
-    @Published var gameStatus: String = "Waiting to Start"
+class PokerGame: ObservableObject, Codable {
+    @Published var players: [Player]
+    @Published var pot: Int
+    @Published var currentRound: Int
+    @Published var activePlayerIndex: Int
+    @Published var gameStatus: String
 
-    // This function will broadcast the updated state to all connected clients
-    var broadcast: ((PokerGame) -> Void)?
-    private var webSocketServer: WebSocketServer?
-
-    func startGame() {
-        // Initialize and start the WebSocket server
-        webSocketServer = WebSocketServer()
-        webSocketServer?.start()
-        // Additional game start logic
+    enum CodingKeys: String, CodingKey {
+        case players, pot, currentRound, activePlayerIndex, gameStatus
     }
 
-    func endGame() {
-        // Stop the WebSocket server
-        webSocketServer?.stop()
-        // Additional game end logic
+    init(players: [Player], pot: Int, currentRound: Int, activePlayerIndex: Int, gameStatus: String) {
+        self.players = players
+        self.pot = pot
+        self.currentRound = currentRound
+        self.activePlayerIndex = activePlayerIndex
+        self.gameStatus = gameStatus
     }
 
-    func updateClients() {
-        // Serialize the current game state
-        let gameState = GameStateModel(/* initialize with current state */)
-        let serverData = ServerData(gameState: gameState, message: nil)
-        let serverMessage = ServerMessage(type: "gameUpdate", data: serverData)
-
-        if let messageData = try? JSONEncoder().encode(serverMessage),
-           let messageString = String(data: messageData, encoding: .utf8) {
-            webSocketServer?.broadcast(message: messageString)
-        }
-    }
-    
-    // Start a new round
-    func startRound() {
-        guard !players.isEmpty else {
-            gameStatus = "No players available."
-            return
-        }
-
-        gameStatus = "Round \(currentRound)"
-        pot = 0
-        
-        for player in players {
-            player.currentBet = 0
-            player.action = nil
-            player.hasFolded = false
-        }
-
-        currentRound += 1
-        activePlayerIndex = 0
-        
-        // Broadcast the new game state
-        broadcast?(self)
+    required init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.players = try container.decode([Player].self, forKey: .players)
+        self.pot = try container.decode(Int.self, forKey: .pot)
+        self.currentRound = try container.decode(Int.self, forKey: .currentRound)
+        self.activePlayerIndex = try container.decode(Int.self, forKey: .activePlayerIndex)
+        self.gameStatus = try container.decode(String.self, forKey: .gameStatus)
     }
 
-    // Perform a player action
-    func playerAction(player: Player, action: PlayerAction) {
-        guard let playerIndex = players.firstIndex(where: { $0.id == player.id }), !players[playerIndex].hasFolded else {
-            return
-        }
-
-        switch action {
-        case .fold:
-            players[playerIndex].hasFolded = true
-            players[playerIndex].action = .fold
-        case .raise(let amount):
-            guard players[playerIndex].chips >= amount else {
-                return // Prevent raising if player has insufficient chips
-            }
-            players[playerIndex].chips -= amount
-            pot += amount
-            players[playerIndex].currentBet += amount
-            players[playerIndex].action = .raise(amount)
-        case .call(let amount):
-            guard players[playerIndex].chips >= amount else {
-                return // Prevent calling if player has insufficient chips
-            }
-            players[playerIndex].chips -= amount
-            pot += amount
-            players[playerIndex].currentBet += amount
-            players[playerIndex].action = .call(amount)
-        case .check:
-            players[playerIndex].action = .check
-        }
-
-        // Broadcast the updated game state
-        broadcast?(self)
-        
-        // Move to the next player after action
-        nextPlayer()
-    }
-
-    // Get the current player
-    func getCurrentPlayer() -> Player? {
-        return players.isEmpty ? nil : players[activePlayerIndex]
-    }
-
-    // Move to the next player
-    func nextPlayer() {
-        var nextIndex = activePlayerIndex
-        repeat {
-            nextIndex = (nextIndex + 1) % players.count
-        } while players[nextIndex].hasFolded && nextIndex != activePlayerIndex
-
-        // If all players but one have folded, declare winner
-        if players.filter({ !$0.hasFolded }).count == 1 {
-            declareWinner()
-            return
-        }
-
-        activePlayerIndex = nextIndex
-    }
-
-    // Declare the winner manually
-    func declareWinner() {
-        guard let winner = players.first(where: { !$0.hasFolded }) else {
-            gameStatus = "Error: No winner available."
-            return
-        }
-
-        winner.chips += pot
-        pot = 0
-        gameStatus = "Player \(winner.name) wins Round \(currentRound - 1)"
-        
-        // Broadcast the final game state after declaring the winner
-        broadcast?(self)
-    }
-
-    // Check if the betting phase is over
-    func isBettingPhaseOver() -> Bool {
-        let activeBets = players.filter { !$0.hasFolded }.map { $0.currentBet }
-        return Set(activeBets).count <= 1
-    }
-    
-    DispatchQueue.main.async {
-        // Update game state
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(players, forKey: .players)
+        try container.encode(pot, forKey: .pot)
+        try container.encode(currentRound, forKey: .currentRound)
+        try container.encode(activePlayerIndex, forKey: .activePlayerIndex)
+        try container.encode(gameStatus, forKey: .gameStatus)
     }
 }
