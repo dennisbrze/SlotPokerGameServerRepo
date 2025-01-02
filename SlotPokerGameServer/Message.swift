@@ -18,6 +18,6 @@ struct ServerMessage: Codable {
 
 struct ServerData: Codable {
     // Define properties based on server responses
-    let gameState: GameStateModel
+    let gameState: PokerGame
     let message: String?
 }
