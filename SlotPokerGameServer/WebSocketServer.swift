@@ -1,71 +1,113 @@
 import Foundation
-import Starscream
+import NIO
+import NIOWebSocket
 
-class WebSocketServer: WebSocketDelegate {
-    private var server: Server!
-    private var clients: [WebSocket] = []
+final class WebSocketServer: ObservableObject {
+    private var serverGroup: MultiThreadedEventLoopGroup?
+    private var channel: Channel?
+    private var connectedClients: [ObjectIdentifier: WebSocket] = [:]
+    private var gameState: PokerGame
 
-    init() {
-        server = Server()
-        server.delegate = self
+    init(gameState: PokerGame) {
+        self.gameState = gameState
     }
 
-    func start() {
-        do {
-            try server.start(port: 8080)
-            print("WebSocket server started on port 8080")
-        } catch {
-            print("Failed to start WebSocket server: \(error)")
-        }
-    }
-
-    func stop() {
-        server.stop()
-        print("WebSocket server stopped")
-    }
-
-    // WebSocketDelegate methods
-    func didReceive(event: WebSocketEvent, client: WebSocket) {
-        switch event {
-        case .connected:
-            clients.append(client)
-            print("Client connected: \(client)")
-        case .disconnected:
-            if let index = clients.firstIndex(of: client) {
-                clients.remove(at: index)
+    func start(host: String, port: Int) throws {
+        serverGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+        let bootstrap = ServerBootstrap(group: serverGroup!)
+            .childChannelInitializer { channel in
+                let webSocketHandler = WebSocketHandler(
+                    connectedClients: self.$connectedClients,
+                    gameState: self.gameState
+                )
+                return channel.pipeline.addHandler(webSocketHandler)
             }
-            print("Client disconnected: \(client)")
-        case .text(let message):
-            handleMessage(message, from: client)
-        default:
-            break
-        }
+            .serverChannelOption(ChannelOptions.backlog, value: 256)
+            .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
+
+        channel = try bootstrap.bind(host: host, port: port).wait()
+        print("WebSocket server started on \(host):\(port)")
     }
 
-    private func handleMessage(_ message: String, from client: WebSocket) {
-        guard let messageData = message.data(using: .utf8),
-              let clientMessage = try? JSONDecoder().decode(ClientMessage.self, from: messageData) else {
-            print("Invalid message format")
+    func stop() throws {
+        try channel?.close().wait()
+        try serverGroup?.syncShutdownGracefully()
+        print("WebSocket server stopped.")
+    }
+}
+
+private final class WebSocketHandler: ChannelInboundHandler {
+    typealias InboundIn = WebSocketFrame
+
+    @Binding private var connectedClients: [ObjectIdentifier: WebSocket]
+    private var gameState: PokerGame
+
+    init(connectedClients: Binding<[ObjectIdentifier: WebSocket]>, gameState: PokerGame) {
+        self._connectedClients = connectedClients
+        self.gameState = gameState
+    }
+
+    func channelActive(context: ChannelHandlerContext) {
+        let clientID = ObjectIdentifier(context.channel)
+        connectedClients[clientID] = WebSocket(channel: context.channel)
+        print("Client connected: \(clientID)")
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        let clientID = ObjectIdentifier(context.channel)
+        connectedClients.removeValue(forKey: clientID)
+        print("Client disconnected: \(clientID)")
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let frame = self.unwrapInboundIn(data)
+
+        guard case .text(let text) = frame.dataType, let payload = frame.getString() else {
+            print("Invalid WebSocket frame received.")
             return
         }
 
-        switch clientMessage.type {
-        case "playerAction":
-            // Handle player actions
-            if let action = clientMessage.data.action,
-               let amount = clientMessage.data.amount {
-                // Update game state based on action
-                // For example:
-                // pokerGame.playerAction(player: currentPlayer, action: .raise(amount))
-            }
-        default:
-            print("Unknown message type: \(clientMessage.type)")
+        handleIncomingMessage(payload, from: context.channel)
+    }
+
+    private func handleIncomingMessage(_ message: String, from channel: Channel) {
+        print("Received message from client: \(message)")
+
+        // Parse and handle the message
+        if let action = decodeAction(message) {
+            handleGameAction(action, from: channel)
+        } else {
+            print("Failed to decode client message.")
         }
     }
 
-    func broadcast(message: String) {
-        for client in clients {
-            client.write(string: message)
+    private func handleGameAction(_ action: GameAction, from channel: Channel) {
+        // Perform game state updates here
+        print("Handling game action: \(action)")
+
+        // Broadcast updated game state to all connected clients
+        let updatedState = encodeGameState()
+        broadcastMessage(updatedState)
+    }
+
+    private func broadcastMessage(_ message: String) {
+        for (_, client) in connectedClients {
+            client.write(message)
         }
+    }
+
+    private func decodeAction(_ message: String) -> GameAction? {
+        // Parse incoming JSON messages into GameAction structs
+        let decoder = JSONDecoder()
+        return try? decoder.decode(GameAction.self, from: Data(message.utf8))
+    }
+
+    private func encodeGameState() -> String {
+        // Convert the current game state to JSON
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(gameState) {
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+        return "{}"
     }
 }
