@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct SlotPokerGameServerApp: App {
+struct GameServerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
